@@ -1,0 +1,73 @@
+name: ShowAndTell
+options:
+  minimumXcodeGenVersion: 2.45.4
+  xcodeVersion: "26.4"
+  defaultConfig: Release
+  deploymentTarget:
+    macOS: "26.4"
+  groupSortPosition: top
+packages:
+  KeyboardShortcuts:
+    url: https://github.com/sindresorhus/KeyboardShortcuts
+    from: 2.0.0
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: 2.6.0
+  PermissionFlow:
+    url: https://github.com/jaywcjlove/PermissionFlow
+    from: 1.0.0
+targets:
+  ShowAndTell:
+    type: application
+    platform: macOS
+    sources:
+      - path: ShowAndTell
+        type: syncedFolder
+    dependencies:
+      - package: KeyboardShortcuts
+      - package: Sparkle
+      - package: PermissionFlow
+    info:
+      path: Info.plist
+      properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # Fork: no update feed, so Sparkle never replaces this build with upstream releases.
+        SUEnableAutomaticChecks: false
+    settings:
+      base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Ad-hoc signed (no Apple Developer team). macOS asks for Screen Recording and Accessibility again after each rebuild.
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        DEVELOPMENT_TEAM: ""
+        CURRENT_PROJECT_VERSION: 1
+        ENABLE_HARDENED_RUNTIME: YES
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Quick Capture
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
+        INFOPLIST_KEY_LSUIElement: YES
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        MARKETING_VERSION: 0.1
+        PRODUCT_NAME: "Quick Capture"
+        PRODUCT_MODULE_NAME: ShowAndTell
+        PRODUCT_BUNDLE_IDENTIFIER: com.kirschx.quickcapture
+        SWIFT_APPROACHABLE_CONCURRENCY: YES
+        SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+        SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY: YES
+        SWIFT_VERSION: 6.0
+      configs:
+        # A separate app for development, so its permission grants and settings never mix with a release install.
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: com.kirschx.quickcapture.dev
+          INFOPLIST_KEY_CFBundleDisplayName: Quick Capture Dev
+          ASSETCATALOG_COMPILER_APPICON_NAME: AppIconDev
+schemes:
+  ShowAndTell:
+    build:
+      targets:
+        ShowAndTell: all
+    run:
+      config: Debug
+    archive:
+      config: Release

@@ -1,0 +1,90 @@
+<!doctype html>
+<!-- Checks the timing of the click rings Show & Tell draws on recordings. Open it in a browser, record it with Show & Tell,
+     click the pad, then step through the frames: the instructions are on the page. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Click Calibration</title>
+<style>
+  :root { color-scheme: light; font-family: -apple-system, system-ui, sans-serif; }
+  body { margin: 0; background: #f2f2f2; color: #111; display: grid; grid-template-columns: 1fr 340px; height: 100vh; }
+  main { display: grid; grid-template-rows: auto 1fr; padding: 24px; gap: 20px; min-width: 0; }
+  #clock { font: 600 64px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: -1px; }
+  #frame { font: 500 20px ui-monospace, Menlo, monospace; color: #666; margin-left: 16px; }
+  #pad {
+    display: grid; place-items: center; border-radius: 24px; user-select: none; cursor: default;
+    background: #2e7d32; color: white; font: 700 72px -apple-system, system-ui, sans-serif;
+  }
+  #pad.down { background: #c62828; }
+  #pad small { display: block; font: 500 22px ui-monospace, Menlo, monospace; text-align: center; margin-top: 8px; }
+  aside { background: white; border-left: 1px solid #ddd; padding: 20px; overflow: auto; font-size: 14px; line-height: 1.45; }
+  aside h2 { font-size: 15px; margin: 0 0 8px; }
+  aside ol { padding-left: 18px; margin: 0 0 20px; }
+  table { width: 100%; border-collapse: collapse; font: 13px ui-monospace, Menlo, monospace; }
+  th, td { text-align: right; padding: 3px 4px; border-bottom: 1px solid #eee; }
+  th:first-child, td:first-child { text-align: left; }
+</style>
+</head>
+<body>
+<main>
+  <div><span id="clock">0.000</span><span id="frame">frame 0</span></div>
+  <div id="pad">UP<small>&nbsp;</small></div>
+</main>
+<aside>
+  <h2>How to check</h2>
+  <ol>
+    <li>Start a Show & Tell recording of this window.</li>
+    <li>Press the pad, hold it about half a second, let go. Do it a few times, with the left and right buttons.</li>
+    <li>Stop, then step through the frames with ← and →. The clock changes every frame, so every frame is in the recording.</li>
+    <li>The filled ring should first appear on the frame the pad turns red, or a frame or two before it: the browser shows a click on the next screen refresh, so the page lags the click slightly.</li>
+    <li>The hollow ring should first appear on the frame the pad turns green again, again up to two frames early.</li>
+    <li>For a number: on the first frame with a ring, compare the clock with the time logged for that press. The clock should be 0–35 ms later. Much more, or a ring after the pad changes, means the timing is off.</li>
+  </ol>
+  <h2>Clicks</h2>
+  <table>
+    <thead><tr><th>#</th><th>button</th><th>down</th><th>up</th><th>held</th></tr></thead>
+    <tbody id="log"></tbody>
+  </table>
+</aside>
+<script>
+  const clock = document.getElementById('clock');
+  const frame = document.getElementById('frame');
+  const pad = document.getElementById('pad');
+  const log = document.getElementById('log');
+  const seconds = ms => (ms / 1000).toFixed(3);
+  let frames = 0;
+  let current = null;
+
+  // A visible change every refresh, so the screen recording keeps every frame.
+  function tick(now) {
+    clock.textContent = seconds(now);
+    frame.textContent = `frame ${++frames}`;
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  const buttonName = event => (event.button === 2 || (event.button === 0 && event.ctrlKey)) ? 'right' : event.button === 0 ? 'left' : 'other';
+
+  pad.addEventListener('pointerdown', event => {
+    pad.setPointerCapture(event.pointerId);
+    const row = log.insertRow(0);
+    current = { row, down: event.timeStamp };
+    row.innerHTML = `<td>${log.rows.length}</td><td>${buttonName(event)}</td><td>${seconds(event.timeStamp)}</td><td>…</td><td>…</td>`;
+    pad.className = 'down';
+    pad.innerHTML = `DOWN<small>pressed at ${seconds(event.timeStamp)}</small>`;
+  });
+
+  pad.addEventListener('pointerup', event => {
+    if (!current) return;
+    current.row.cells[3].textContent = seconds(event.timeStamp);
+    current.row.cells[4].textContent = `${Math.round(event.timeStamp - current.down)} ms`;
+    current = null;
+    pad.className = '';
+    pad.innerHTML = `UP<small>let go at ${seconds(event.timeStamp)}</small>`;
+  });
+
+  pad.addEventListener('contextmenu', event => event.preventDefault());
+</script>
+</body>
+</html>
