@@ -41,14 +41,14 @@ targets:
         CODE_SIGN_STYLE: Manual
         CODE_SIGN_IDENTITY: "-"
         DEVELOPMENT_TEAM: ""
-        CURRENT_PROJECT_VERSION: 1
+        CURRENT_PROJECT_VERSION: 2
         ENABLE_HARDENED_RUNTIME: YES
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Quick Capture
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
         INFOPLIST_KEY_LSUIElement: YES
         INFOPLIST_KEY_NSHumanReadableCopyright: ""
-        MARKETING_VERSION: 0.1
+        MARKETING_VERSION: 0.1.1
         PRODUCT_NAME: "Quick Capture"
         PRODUCT_MODULE_NAME: ShowAndTell
         PRODUCT_BUNDLE_IDENTIFIER: com.kirschx.quickcapture

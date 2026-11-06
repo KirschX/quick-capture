@@ -34,26 +34,29 @@ enum MouseTrigger: String, CaseIterable, Identifiable {
     var usesChord: Bool { self == .chord || self == .chordHold }
 }
 
-/// Watches the mouse for the trigger chosen in Settings. For the left + right chords, each button press is held back
-/// for a moment to see whether the other button joins it; on its own it's let through unchanged, so ordinary clicks
-/// and drags still work. A trigger never reaches the app under the mouse. Needs Accessibility, to watch and hold back clicks.
+/// Watches the mouse for the trigger chosen in Settings. The left button is never held back or re-sent, so clicks,
+/// drags and text selection work exactly as without the app. For the left + right chords only a right press waits a
+/// moment (to see whether it's part of a chord) and is then let through unchanged. A trigger's presses never reach
+/// the app under the mouse, except a left press that came first, which already had. Needs Accessibility.
 final class MouseChord {
     static let shared = MouseChord()
-    /// How long a press waits for the other button. Short enough not to notice on a click; a drag lets it through at once.
+    /// How long a right press waits for the left button.
     private static let window: Duration = .milliseconds(60)
     /// How long both buttons must stay down for `chordHold`.
     private static let hold: Duration = .milliseconds(200)
     /// Marks the events this sends back out after holding them, so they aren't held again.
     private static let replayMarker: Int64 = 0x5143_4150
 
+    private enum Button { case left, right, other }
+
     private var tap: CFMachPort?
-    /// A button press being held back, waiting to see if the other button joins it.
-    private var pending: CGEvent?
-    /// With `chordHold`: both presses, held back until the buttons have stayed down long enough.
+    /// A right press being held back, waiting to see if the left button joins it.
+    private var pendingRight: CGEvent?
+    /// With `chordHold`: the held-back presses of a chord, until the buttons have stayed down long enough.
     private var candidate: [CGEvent] = []
     private var generation = 0
-    /// After a trigger, its buttons' releases (and any dragging until then) are swallowed.
-    private var releasesToSwallow = 0
+    /// Buttons whose release (and dragging until then) is swallowed, because their press started a capture.
+    private var swallowing: Set<Button> = []
 
     /// Starts watching clicks, retrying until Accessibility is granted.
     func start() {
@@ -93,51 +96,32 @@ final class MouseChord {
             return pass
         }
         if event.getIntegerValueField(.eventSourceUserData) == Self.replayMarker { return pass }
-        let trigger = MouseTrigger.current
-
-        // Finish what a trigger started, even if the setting changed meanwhile.
-        if releasesToSwallow > 0 {
-            if type == .leftMouseUp || type == .rightMouseUp || type == .otherMouseUp { releasesToSwallow -= 1 }
-            return nil
-        }
-        if !candidate.isEmpty {
-            switch type {
-            case .leftMouseUp, .rightMouseUp:
-                // Let go too soon for a hold: both presses happen after all, then this release.
-                return releasingFirst(event)
-            default:
-                return nil
-            }
-        }
 
         switch type {
-        case .otherMouseDown:
-            let button = event.getIntegerValueField(.mouseEventButtonNumber)
-            let matches = (trigger == .middle && button == 2) || (trigger == .side && (button == 3 || button == 4))
-            guard matches else { return releasingFirst(event) }
-            releasesToSwallow = 1
-            CaptureCoordinator.shared.toggleCapture()
-            return nil
-        case .leftMouseDown, .rightMouseDown:
-            if let held = pending, held.type != type {
-                // The other button joined in time.
-                pending = nil
-                generation += 1
-                if trigger == .chordHold, let copy = event.copy() {
-                    candidate = [held, copy]
-                    let current = generation
-                    Task {
-                        try? await Task.sleep(for: Self.hold)
-                        if generation == current, !candidate.isEmpty { fire() }
-                    }
-                } else {
-                    fire()
-                }
+        case .leftMouseDown:
+            if let right = pendingRight, MouseTrigger.current.usesChord {
+                // Right then left: neither press reaches the app.
+                pendingRight = nil
+                chord(held: [right, event.copy()].compactMap { $0 }, swallow: [.left, .right])
                 return nil
             }
-            if pending != nil { release() }
-            guard trigger.usesChord else { return pass }
-            pending = event.copy()
+            return pass
+        case .leftMouseUp:
+            if swallowing.remove(.left) != nil { return nil }
+            return releasingFirst(event)
+        case .leftMouseDragged:
+            return swallowing.contains(.left) ? nil : pass
+
+        case .rightMouseDown:
+            guard MouseTrigger.current.usesChord, swallowing.isEmpty, candidate.isEmpty else { return pass }
+            // Asked of the hardware rather than tracked, so a missed release can never turn right clicks into captures.
+            if CGEventSource.buttonState(.hidSystemState, button: .left) {
+                // Left then right: the left press already reached the app; only the right one is kept from it.
+                chord(held: [event.copy()].compactMap { $0 }, swallow: [.right])
+                return nil
+            }
+            if pendingRight != nil { release() }
+            pendingRight = event.copy()
             generation += 1
             let current = generation
             Task {
@@ -145,22 +129,55 @@ final class MouseChord {
                 if generation == current { release() }
             }
             return nil
-        default:
+        case .rightMouseUp:
+            if swallowing.remove(.right) != nil { return nil }
             return releasingFirst(event)
+        case .rightMouseDragged:
+            if swallowing.contains(.right) { return nil }
+            return releasingFirst(event)
+
+        case .otherMouseDown:
+            let trigger = MouseTrigger.current
+            let button = event.getIntegerValueField(.mouseEventButtonNumber)
+            guard (trigger == .middle && button == 2) || (trigger == .side && (button == 3 || button == 4)) else { return pass }
+            swallowing.insert(.other)
+            CaptureCoordinator.shared.toggleCapture()
+            return nil
+        case .otherMouseUp:
+            return swallowing.remove(.other) != nil ? nil : pass
+        case .otherMouseDragged:
+            return swallowing.contains(.other) ? nil : pass
+        default:
+            return pass
         }
     }
 
-    /// Both chord buttons are down: start the capture, and swallow both releases.
-    private func fire() {
+    /// Both buttons are down. With `chord` the capture starts now; with `chordHold` once they've stayed down long
+    /// enough, or the held presses go through as they were if a button comes up first.
+    private func chord(held: [CGEvent], swallow: Set<Button>) {
+        generation += 1
+        guard MouseTrigger.current == .chordHold else {
+            fire(swallow)
+            return
+        }
+        candidate = held
+        let current = generation
+        Task {
+            try? await Task.sleep(for: Self.hold)
+            if generation == current, !candidate.isEmpty { fire(swallow) }
+        }
+    }
+
+    private func fire(_ swallow: Set<Button>) {
         candidate = []
         generation += 1
-        releasesToSwallow = 2
+        swallowing.formUnion(swallow)
         CaptureCoordinator.shared.toggleCapture()
     }
 
-    /// Sends anything held back on before `event`, keeping their order: it all goes back out, the held presses first.
+    /// Sends anything held back on before `event`, keeping their order: the held presses first, then this.
     private func releasingFirst(_ event: CGEvent) -> Unmanaged<CGEvent>? {
-        guard pending != nil || !candidate.isEmpty, let copy = event.copy() else { return Unmanaged.passUnretained(event) }
+        guard pendingRight != nil || !candidate.isEmpty, let copy = event.copy() else { return Unmanaged.passUnretained(event) }
         release()
         post(copy)
         return nil
@@ -168,8 +185,8 @@ final class MouseChord {
 
     /// Lets held presses through, as they were.
     private func release() {
-        let held = (pending.map { [$0] } ?? []) + candidate
-        pending = nil
+        let held = (pendingRight.map { [$0] } ?? []) + candidate
+        pendingRight = nil
         candidate = []
         generation += 1
         held.forEach(post)

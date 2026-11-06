@@ -22,7 +22,7 @@ struct SettingsView: View {
                     }
                 } label: {
                     Text("Capture with the mouse")
-                    Text("Needs Accessibility. The click that starts a capture doesn't reach the app underneath.")
+                    Text("Needs Accessibility. Left clicks and drags are never touched; a right click waits a moment first.")
                 }
                 KeyboardShortcuts.Recorder("Record screen", name: .record, onChange: KeyboardShortcuts.Name.record.takeShortcut)
                 Toggle(isOn: $replay.isOn) {
